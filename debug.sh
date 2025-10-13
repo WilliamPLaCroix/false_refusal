@@ -20,16 +20,12 @@ which python
 # Main Experiment Script
 echo "Starting Main Experiment Workflow!"
 
-if ! python -c "import shap" >/dev/null 2>&1; then
-  python -m pip install -U shap
-fi
-
 echo "False refusal SHAP testing"
 python3 correctness.py \
 > correctness.log 2>&1
 
 #echo "Begin Inference"
-#python3 scripts/vllm_infer_metrics.py --model_name_or_path "/scratch/common_models/Llama-3.2-3B-Instruct" --adapter_name_or_path "/scratch/wlacroix/.cache/llama_factory/debug_adapter" --save_path "/scratch/wlacroix/.cache/llama_factory/debug" --template llama3 --dataset debug --temperature 0 --grade 7 \
+python3 scripts/vllm_infer_metrics.py --model_name_or_path "/scratch/common_models/Llama-3.2-3B-Instruct" --adapter_name_or_path "/scratch/wlacroix/.cache/llama_factory/debug_adapter" --save_path "/scratch/wlacroix/.cache/llama_factory/debug" --template llama3 --dataset debug --temperature 0 --grade 7 \
 #> experiments/logs/debug_infer.log 2>&1
 
 #or if you encounter error:

@@ -5,7 +5,10 @@ import shap
 from tqdm import tqdm
 import torch
 
-def main():
+
+if __name__ == "__main__":
+
+    print("Loading XSB dataset...")
     xsb_dataset = pd.read_csv('data/XSB.csv', header='infer', usecols=['prompt', 'label', 'focus'])
     print(f"XSB dataset shape: {xsb_dataset.shape}")
     xsb_dataset
@@ -62,7 +65,3 @@ def main():
     print(f"Percent correct when label is unsafe: {percent_correct_unsafe:.2f}%")
 
     xsb_dataset.to_csv('data/xsb_with_guesses.csv', index=False)
-
-
-if __name__ == "__main__":
-    main()
