@@ -65,5 +65,4 @@ def main():
 
 
 if __name__ == "__main__":
-    !pip install shap
     main()
