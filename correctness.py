@@ -32,7 +32,7 @@ if __name__ == "__main__":
     correctness = []
     shap_values = explainer(xsb_dataset["prompt"])
 
-    for row in tqdm(xsb_dataset.itertuples()):
+    for row in xsb_dataset.itertuples():
         index = row.Index
         prompt = row.prompt
         label = row.label
