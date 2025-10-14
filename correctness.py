@@ -2,16 +2,16 @@ import pandas as pd
 import numpy as np
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import shap
-from tqdm import tqdm
 import torch
 
-
-if __name__ == "__main__":
-
+def main():
     print("Loading XSB dataset...")
-    xsb_dataset = pd.read_csv('data/XSB.csv', header='infer', usecols=['prompt', 'label', 'focus'])
+    xsb_dataset = pd.read_csv('data/XSB.csv', header='infer', usecols=['prompt', 'label', 'focus'])  # limit to 10 rows for testing
+    # sample 10 rows, ensure at least one safe and one unsafe
+    xsb_dataset = pd.concat([xsb_dataset[xsb_dataset['label'] == 'safe'].sample(n=5, random_state=42),
+                             xsb_dataset[xsb_dataset['label'] == 'unsafe'].sample(n=5, random_state=42)])
     print(f"XSB dataset shape: {xsb_dataset.shape}")
-    xsb_dataset
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
     tokenizer = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
@@ -44,7 +44,7 @@ if __name__ == "__main__":
         trigger_token = shap_values[index].data[trigger_token_index]
         #print(f"Trigger token: {trigger_token}\n")
         guesses.append(trigger_token.strip())
-        correctness.append(trigger_token in focus)
+        correctness.append(bool(trigger_token in focus))
 
     print(f"Guesses: {guesses}\nCorrectness: {correctness}")
 
@@ -65,3 +65,6 @@ if __name__ == "__main__":
     print(f"Percent correct when label is unsafe: {percent_correct_unsafe:.2f}%")
 
     xsb_dataset.to_csv('data/xsb_with_guesses.csv', index=False)
+
+if __name__ == "__main__":
+    main()
