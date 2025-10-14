@@ -9,7 +9,7 @@ def main():
     xsb_dataset = pd.read_csv('data/XSB.csv', header='infer', usecols=['prompt', 'label', 'focus'])  # limit to 10 rows for testing
     # sample 10 rows, ensure at least one safe and one unsafe
     xsb_dataset = pd.concat([xsb_dataset[xsb_dataset['label'] == 'safe'].sample(n=5, random_state=42),
-                             xsb_dataset[xsb_dataset['label'] == 'unsafe'].sample(n=5, random_state=42)])
+                             xsb_dataset[xsb_dataset['label'] == 'unsafe'].sample(n=5, random_state=42)], ignore_index=True)
     print(f"XSB dataset shape: {xsb_dataset.shape}")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
