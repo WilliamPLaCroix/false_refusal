@@ -34,7 +34,7 @@ def main():
     model.config.task_specific_params = model.config.task_specific_params or {}
     model.config.task_specific_params["text-generation"] = {
         "do_sample": True,
-        "max_length": 50,
+        "max_length": 10,
         "temperature": 0,
         "top_k": 5,
         "no_repeat_ngram_size": 2,
