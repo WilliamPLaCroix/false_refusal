@@ -1,20 +1,35 @@
 import pandas as pd
 import numpy as np
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import warnings
 from captum.attr import (
     FeatureAblation, 
-    ShapleyValues,
+    ShapleyValueSampling,
     LayerIntegratedGradients, 
     LLMAttribution, 
     LLMGradientAttribution, 
     TextTokenInput,
 )
+from sklearn.metrics import f1_score, precision_score, recall_score
 
 # Ignore warnings
 warnings.filterwarnings("ignore")
 
+def calculate_metrics(true_labels, predictions):
+    """Calculate accuracy, precision, recall, and F1 score"""
+    accuracy = np.mean(predictions) * 100
+    
+    # For F1, we need binary classification
+    # True if correct prediction, False otherwise
+    true_binary = [1] * len(true_labels)  # All should be correctly identified
+    pred_binary = [1 if pred else 0 for pred in predictions]
+    
+    precision = precision_score(true_binary, pred_binary, zero_division=0) * 100
+    recall = recall_score(true_binary, pred_binary, zero_division=0) * 100
+    f1 = f1_score(true_binary, pred_binary, zero_division=0) * 100
+    
+    return accuracy, precision, recall, f1
 
 def main():
     print("Loading XSB dataset...")
@@ -26,7 +41,7 @@ def main():
     # Filter out empty prompts that might cause issues
     xsb_dataset = xsb_dataset[xsb_dataset['prompt'].str.len() > 0].reset_index(drop=True)
     
-    # Sample for testing - uncomment if needed for faster testing
+    # Sample for testing
     xsb_dataset = pd.concat([
         xsb_dataset[xsb_dataset['label'] == 'safe'].sample(n=min(5, len(xsb_dataset[xsb_dataset['label'] == 'safe'])), random_state=42),
         xsb_dataset[xsb_dataset['label'] == 'unsafe'].sample(n=min(5, len(xsb_dataset[xsb_dataset['label'] == 'unsafe'])), random_state=42)
@@ -61,8 +76,7 @@ def main():
     # Initialize attribution methods
     print("Initializing attribution methods...")
     
-    # 1. Use ShapleyValueSampling instead of ShapleyValues for computational efficiency
-    from captum.attr import ShapleyValueSampling
+    # 1. Use ShapleyValueSampling for computational efficiency
     sv = ShapleyValueSampling(model)
     sv_llm_attr = LLMAttribution(sv, tokenizer)
     
@@ -79,7 +93,7 @@ def main():
         print("Warning: Could not initialize LayerIntegratedGradients, skipping gradient method")
         use_gradients = False
     
-    skip_tokens = [1] if tokenizer.bos_token_id else []  # skip BOS token if present
+    skip_tokens = [1] if tokenizer.bos_token_id else []
     
     # Initialize result lists
     shapley_guesses = []
@@ -131,19 +145,20 @@ def main():
                     gradient_correctness.append(False)
                 continue
             
-            # Generate a small target for attribution with proper attention mask
+            # Generate a small target for attribution with proper tokenization
             with torch.no_grad():
+                # Fix: Use return_attention_mask instead of attention_mask=True
                 inputs = tokenizer(
                     prompt, 
                     return_tensors="pt", 
                     padding=True,
-                    attention_mask=True
+                    return_attention_mask=True
                 ).to(device)
                 
                 outputs = model.generate(
                     inputs["input_ids"], 
                     attention_mask=inputs["attention_mask"],
-                    max_new_tokens=5,  # Reduced for efficiency
+                    max_new_tokens=5,
                     do_sample=False, 
                     pad_token_id=tokenizer.eos_token_id
                 )
@@ -152,13 +167,13 @@ def main():
             if not target.strip():
                 target = "."  # fallback target
             
-            # 1. Captum Shapley Values Attribution (using sampling for efficiency)
+            # 1. Shapley Values Attribution (using sampling for efficiency)
             try:
                 sv_attr_res = sv_llm_attr.attribute(
                     inp, 
                     target=target, 
                     skip_tokens=skip_tokens,
-                    n_samples=20  # Limit samples for efficiency
+                    n_samples=20
                 )
                 sv_attr_scores = sv_attr_res.seq_attr.cpu().numpy() if hasattr(sv_attr_res.seq_attr, 'cpu') else sv_attr_res.seq_attr
                 sv_trigger_idx = np.argmax(np.abs(sv_attr_scores))
@@ -207,7 +222,7 @@ def main():
             if use_gradients:
                 gradient_guesses.append("")
                 gradient_correctness.append(False)
-       
+    
     # Add results to dataset
     xsb_dataset['shapley_guesses'] = shapley_guesses
     xsb_dataset['shapley_correctness'] = shapley_correctness
@@ -217,7 +232,7 @@ def main():
         xsb_dataset['gradient_guesses'] = gradient_guesses
         xsb_dataset['gradient_correctness'] = gradient_correctness
     
-    # Calculate and print results
+    # Calculate and print results with F1 scores
     print("\n=== RESULTS ===")
     
     methods = ['shapley', 'ablation']
@@ -227,46 +242,79 @@ def main():
     for method in methods:
         correctness_col = f'{method}_correctness'
         
-        # Overall accuracy
-        overall_accuracy = xsb_dataset[correctness_col].mean() * 100
+        # Calculate metrics
+        accuracy, precision, recall, f1 = calculate_metrics(
+            xsb_dataset['focus'].tolist(), 
+            xsb_dataset[correctness_col].tolist()
+        )
+        
         print(f"\n{method.upper()} VALUES:")
-        print(f"Overall accuracy: {overall_accuracy:.2f}%")
+        print(f"Accuracy: {accuracy:.2f}%")
+        print(f"Precision: {precision:.2f}%")
+        print(f"Recall: {recall:.2f}%")
+        print(f"F1 Score: {f1:.2f}%")
         
         # Accuracy by label
         safe_mask = xsb_dataset['label'] == 'safe'
         unsafe_mask = xsb_dataset['label'] == 'unsafe'
         
         if safe_mask.sum() > 0:
-            safe_accuracy = xsb_dataset[safe_mask][correctness_col].mean() * 100
-            print(f"Safe samples accuracy: {safe_accuracy:.2f}%")
+            safe_accuracy, safe_precision, safe_recall, safe_f1 = calculate_metrics(
+                xsb_dataset[safe_mask]['focus'].tolist(),
+                xsb_dataset[safe_mask][correctness_col].tolist()
+            )
+            print(f"Safe samples - Accuracy: {safe_accuracy:.2f}%, F1: {safe_f1:.2f}%")
         
         if unsafe_mask.sum() > 0:
-            unsafe_accuracy = xsb_dataset[unsafe_mask][correctness_col].mean() * 100
-            print(f"Unsafe samples accuracy: {unsafe_accuracy:.2f}%")
+            unsafe_accuracy, unsafe_precision, unsafe_recall, unsafe_f1 = calculate_metrics(
+                xsb_dataset[unsafe_mask]['focus'].tolist(),
+                xsb_dataset[unsafe_mask][correctness_col].tolist()
+            )
+            print(f"Unsafe samples - Accuracy: {unsafe_accuracy:.2f}%, F1: {unsafe_f1:.2f}%")
     
     # Save results
     output_file = 'data/xsb_multi_attribution_results.csv'
     xsb_dataset.to_csv(output_file, index=False)
     print(f"\nResults saved to: {output_file}")
     
-    # Summary comparison
+    # Summary comparison with F1 scores
     print("\n=== METHOD COMPARISON ===")
     comparison_data = {
         'Method': methods,
-        'Overall_Accuracy': [xsb_dataset[f'{method}_correctness'].mean() * 100 for method in methods],
+        'Accuracy': [],
+        'F1_Score': [],
     }
     
+    for method in methods:
+        correctness_col = f'{method}_correctness'
+        accuracy, precision, recall, f1 = calculate_metrics(
+            xsb_dataset['focus'].tolist(),
+            xsb_dataset[correctness_col].tolist()
+        )
+        comparison_data['Accuracy'].append(accuracy)
+        comparison_data['F1_Score'].append(f1)
+    
     if (xsb_dataset['label'] == 'safe').sum() > 0:
-        comparison_data['Safe_Accuracy'] = [
-            xsb_dataset[xsb_dataset['label'] == 'safe'][f'{method}_correctness'].mean() * 100 
-            for method in methods
-        ]
+        comparison_data['Safe_F1'] = []
+        for method in methods:
+            correctness_col = f'{method}_correctness'
+            safe_mask = xsb_dataset['label'] == 'safe'
+            _, _, _, safe_f1 = calculate_metrics(
+                xsb_dataset[safe_mask]['focus'].tolist(),
+                xsb_dataset[safe_mask][correctness_col].tolist()
+            )
+            comparison_data['Safe_F1'].append(safe_f1)
     
     if (xsb_dataset['label'] == 'unsafe').sum() > 0:
-        comparison_data['Unsafe_Accuracy'] = [
-            xsb_dataset[xsb_dataset['label'] == 'unsafe'][f'{method}_correctness'].mean() * 100 
-            for method in methods
-        ]
+        comparison_data['Unsafe_F1'] = []
+        for method in methods:
+            correctness_col = f'{method}_correctness'
+            unsafe_mask = xsb_dataset['label'] == 'unsafe'
+            _, _, _, unsafe_f1 = calculate_metrics(
+                xsb_dataset[unsafe_mask]['focus'].tolist(),
+                xsb_dataset[unsafe_mask][correctness_col].tolist()
+            )
+            comparison_data['Unsafe_F1'].append(unsafe_f1)
     
     comparison_df = pd.DataFrame(comparison_data)
     print(comparison_df.round(2))
