@@ -21,7 +21,7 @@ which python
 echo "Starting Main Experiment Workflow!"
 
 echo "Prompt rephrasing"
-python3 scripts/vllm_infer.py --model_name_or_path "/scratch/common_models/Meta-Llama-3.1-70B-Instruct" --save_path "/nethome/wlacroix/false_refusal/" --template llama3 --dataset prompt_rephrasing \
+python3 scripts/vllm_infer.py --model_name_or_path "/scratch/common_models/Meta-Llama-3.1-70B-Instruct" --save_path "/nethome/wlacroix/false_refusal" --save_name "prompt_rephrasing" --template llama3 --dataset prompt_rephrasing \
 > /nethome/wlacroix/false_refusal/rephrase.log 2>&1
 
 #or if you encounter error:
