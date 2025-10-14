@@ -7,6 +7,10 @@ import torch
 def main():
     print("Loading XSB dataset...")
     xsb_dataset = pd.read_csv('data/XSB.csv', header='infer', usecols=['prompt', 'label', 'focus'])  # limit to 10 rows for testing
+    
+    # Fill NaN values in focus column with empty strings
+    xsb_dataset['focus'] = xsb_dataset['focus'].fillna('')
+    
     # sample 10 rows, ensure at least one safe and one unsafe
     xsb_dataset = pd.concat([xsb_dataset[xsb_dataset['label'] == 'safe'].sample(n=5, random_state=42),
                              xsb_dataset[xsb_dataset['label'] == 'unsafe'].sample(n=5, random_state=42)], ignore_index=True)
