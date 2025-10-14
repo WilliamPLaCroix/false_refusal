@@ -24,6 +24,7 @@ def main():
     # set model decoder to true
     model.config.is_decoder = True
     # set text-generation params under task_specific_params
+    model.config.task_specific_params = model.config.task_specific_params or {}
     model.config.task_specific_params["text-generation"] = {
         "do_sample": True,
         "max_length": 50,
