@@ -10,9 +10,9 @@ log                     = /scratch/wlacroix/logs/log/run.$(ClusterId).log
 # If all files are on the server, otherwise set to YES
 #should_transfer_files   = NO
 #when_to_transfer_output = ON_EXIT
-request_GPUs            = 1
+request_GPUs            = 2
 request_CPUs            = 10
-request_memory          = 50G
+request_memory          = 100G
 getenv                  = True
 requirements            = (GPUs_GlobalMemoryMb >= 64000)
 #64000
