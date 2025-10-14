@@ -11,15 +11,16 @@ def main():
     # Fill NaN values in focus column with empty strings
     xsb_dataset['focus'] = xsb_dataset['focus'].fillna('')
     
-    # sample 10 rows, ensure at least one safe and one unsafe
-    xsb_dataset = pd.concat([xsb_dataset[xsb_dataset['label'] == 'safe'].sample(n=5, random_state=42),
-                             xsb_dataset[xsb_dataset['label'] == 'unsafe'].sample(n=5, random_state=42)], ignore_index=True)
+    # # sample 10 rows, ensure at least one safe and one unsafe
+    # xsb_dataset = pd.concat([xsb_dataset[xsb_dataset['label'] == 'safe'].sample(n=5, random_state=42),
+    #                          xsb_dataset[xsb_dataset['label'] == 'unsafe'].sample(n=5, random_state=42)], ignore_index=True)
     print(f"XSB dataset shape: {xsb_dataset.shape}")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
-    tokenizer = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
-    model = AutoModelForCausalLM.from_pretrained("gpt2").to(device)
+    model_name = "meta-llama/Llama-3.1-8B"
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
     # set model decoder to true
     model.config.is_decoder = True
     # set text-generation params under task_specific_params
