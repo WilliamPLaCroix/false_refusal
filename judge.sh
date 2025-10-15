@@ -37,11 +37,11 @@ print("Downloaded.")
 PY
 
 echo "Judge rephrase"
-python3 scripts/vllm_infer.py --model_name_or_path "/scratch/common_models/Llama-Guard-3-8B" --save_path "/nethome/wlacroix/false_refusal/data" --save_name "judge_rephrase" --template llama3 --dataset judge_rephrase \
+python3 scripts/vllm_infer.py --model_name_or_path "/scratch/common_models/Llama-Guard-3-8B" --save_path "/nethome/wlacroix/false_refusal/data" --save_name "judge_rephrase_predict" --template llama3 --dataset judge_rephrase_dataset \
 > /nethome/wlacroix/false_refusal/judge_rephrase.log 2>&1
 
 echo "Judge ignore-word"
-python3 scripts/vllm_infer.py --model_name_or_path "/scratch/common_models/Llama-Guard-3-8B" --save_path "/nethome/wlacroix/false_refusal/data" --save_name "judge_ignore-word" --template llama3 --dataset judge_ignore-word \
+python3 scripts/vllm_infer.py --model_name_or_path "/scratch/common_models/Llama-Guard-3-8B" --save_path "/nethome/wlacroix/false_refusal/data" --save_name "judge_ignore-word_predict" --template llama3 --dataset judge_ignore-word_dataset \
 > /nethome/wlacroix/false_refusal/judge_ignore-word.log 2>&1
 
 #or if you encounter error:
