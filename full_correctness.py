@@ -42,10 +42,10 @@ def main():
     xsb_dataset = xsb_dataset[xsb_dataset['prompt'].str.len() > 0].reset_index(drop=True)
     
     # Sample for testing
-    xsb_dataset = pd.concat([
-        xsb_dataset[xsb_dataset['label'] == 'safe'].sample(n=min(5, len(xsb_dataset[xsb_dataset['label'] == 'safe'])), random_state=42),
-        xsb_dataset[xsb_dataset['label'] == 'unsafe'].sample(n=min(5, len(xsb_dataset[xsb_dataset['label'] == 'unsafe'])), random_state=42)
-    ], ignore_index=True)
+    # xsb_dataset = pd.concat([
+        # xsb_dataset[xsb_dataset['label'] == 'safe'].sample(n=min(5, len(xsb_dataset[xsb_dataset['label'] == 'safe'])), random_state=42),
+        # xsb_dataset[xsb_dataset['label'] == 'unsafe'].sample(n=min(5, len(xsb_dataset[xsb_dataset['label'] == 'unsafe'])), random_state=42)
+    # ], ignore_index=True)
     
     print(f"XSB dataset shape: {xsb_dataset.shape}")
 
