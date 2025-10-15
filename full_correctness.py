@@ -42,10 +42,10 @@ def main():
     xsb_dataset = xsb_dataset[xsb_dataset['prompt'].str.len() > 0].reset_index(drop=True)
     
     # Sample for testing
-    # xsb_dataset = pd.concat([
-    #     xsb_dataset[xsb_dataset['label'] == 'safe'].sample(n=min(5, len(xsb_dataset[xsb_dataset['label'] == 'safe'])), random_state=42),
-    #     xsb_dataset[xsb_dataset['label'] == 'unsafe'].sample(n=min(5, len(xsb_dataset[xsb_dataset['label'] == 'unsafe'])), random_state=42)
-    # ], ignore_index=True)
+    xsb_dataset = pd.concat([
+        xsb_dataset[xsb_dataset['label'] == 'safe'].sample(n=min(5, len(xsb_dataset[xsb_dataset['label'] == 'safe'])), random_state=42),
+        xsb_dataset[xsb_dataset['label'] == 'unsafe'].sample(n=min(5, len(xsb_dataset[xsb_dataset['label'] == 'unsafe'])), random_state=42)
+    ], ignore_index=True)
     
     print(f"XSB dataset shape: {xsb_dataset.shape}")
 
@@ -93,7 +93,17 @@ def main():
         print("Warning: Could not initialize LayerIntegratedGradients, skipping gradient method")
         use_gradients = False
     
-    skip_tokens = [1] if tokenizer.bos_token_id else []
+    skip_tokens = []
+    if tokenizer.bos_token_id is not None:
+        skip_tokens.append(tokenizer.bos_token_id)
+    if tokenizer.eos_token_id is not None:
+        skip_tokens.append(tokenizer.eos_token_id)
+    if tokenizer.pad_token_id is not None:
+        skip_tokens.append(tokenizer.pad_token_id)
+    if tokenizer.unk_token_id is not None:
+        skip_tokens.append(tokenizer.unk_token_id)
+    
+    print(f"Skip tokens: {skip_tokens}")
     
     # Initialize result lists
     shapley_guesses = []
@@ -115,39 +125,28 @@ def main():
         
         # Skip empty or very short prompts
         if len(prompt.strip()) < 3:
-            print(f"Skipping empty/short prompt at row {idx}")
-            shapley_guesses.append("")
-            shapley_correctness.append(False)
-            ablation_guesses.append("")
-            ablation_correctness.append(False)
-            if use_gradients:
-                gradient_guesses.append("")
-                gradient_correctness.append(False)
+            # ...existing skip logic...
             continue
         
         try:
-            # Create input for attribution
+            # Create input for attribution with proper skip_tokens
             inp = TextTokenInput(
                 prompt, 
                 tokenizer,
                 skip_tokens=skip_tokens,
             )
             
-            # Ensure we have tokens to work with
+            # Ensure we have tokens to work with after filtering
             if len(inp.values) == 0:
                 print(f"No tokens found for prompt at row {idx}")
-                shapley_guesses.append("")
-                shapley_correctness.append(False)
-                ablation_guesses.append("")
-                ablation_correctness.append(False)
-                if use_gradients:
-                    gradient_guesses.append("")
-                    gradient_correctness.append(False)
+                # ...existing empty handling...
                 continue
+            
+            # Debug: Print tokens being considered
+            print(f"Tokens to analyze: {inp.values[:10]}...")  # First 10 tokens
             
             # Generate a small target for attribution with proper tokenization
             with torch.no_grad():
-                # Fix: Use return_attention_mask instead of attention_mask=True
                 inputs = tokenizer(
                     prompt, 
                     return_tensors="pt", 
@@ -176,10 +175,26 @@ def main():
                     n_samples=20
                 )
                 sv_attr_scores = sv_attr_res.seq_attr.cpu().numpy() if hasattr(sv_attr_res.seq_attr, 'cpu') else sv_attr_res.seq_attr
-                sv_trigger_idx = np.argmax(np.abs(sv_attr_scores))
-                sv_trigger_token = inp.values[sv_trigger_idx].strip()
+                
+                # Filter out special tokens manually if they still appear
+                valid_indices = []
+                valid_scores = []
+                for i, token in enumerate(inp.values):
+                    token_id = tokenizer.convert_tokens_to_ids(token)
+                    if token_id not in skip_tokens and not token.startswith('<|') and not token.startswith('['):
+                        valid_indices.append(i)
+                        valid_scores.append(sv_attr_scores[i])
+                
+                if valid_scores:
+                    best_idx = valid_indices[np.argmax(np.abs(valid_scores))]
+                    sv_trigger_token = inp.values[best_idx].strip()
+                else:
+                    sv_trigger_token = ""
+                
                 shapley_guesses.append(sv_trigger_token)
                 shapley_correctness.append(bool(sv_trigger_token in focus))
+                print(f"Shapley trigger: {sv_trigger_token}")
+                
             except Exception as e:
                 print(f"Error in Shapley Values for row {idx}: {e}")
                 shapley_guesses.append("")
@@ -189,10 +204,26 @@ def main():
             try:
                 fa_attr_res = fa_llm_attr.attribute(inp, target=target, skip_tokens=skip_tokens)
                 fa_attr_scores = fa_attr_res.seq_attr.cpu().numpy() if hasattr(fa_attr_res.seq_attr, 'cpu') else fa_attr_res.seq_attr
-                fa_trigger_idx = np.argmax(np.abs(fa_attr_scores))
-                fa_trigger_token = inp.values[fa_trigger_idx].strip()
+                
+                # Filter out special tokens manually
+                valid_indices = []
+                valid_scores = []
+                for i, token in enumerate(inp.values):
+                    token_id = tokenizer.convert_tokens_to_ids(token)
+                    if token_id not in skip_tokens and not token.startswith('<|') and not token.startswith('['):
+                        valid_indices.append(i)
+                        valid_scores.append(fa_attr_scores[i])
+                
+                if valid_scores:
+                    best_idx = valid_indices[np.argmax(np.abs(valid_scores))]
+                    fa_trigger_token = inp.values[best_idx].strip()
+                else:
+                    fa_trigger_token = ""
+                
                 ablation_guesses.append(fa_trigger_token)
                 ablation_correctness.append(bool(fa_trigger_token in focus))
+                print(f"Ablation trigger: {fa_trigger_token}")
+                
             except Exception as e:
                 print(f"Error in Feature Ablation for row {idx}: {e}")
                 ablation_guesses.append("")
@@ -203,10 +234,26 @@ def main():
                 try:
                     lig_attr_res = lig_llm_attr.attribute(inp, target=target, skip_tokens=skip_tokens)
                     lig_attr_scores = lig_attr_res.seq_attr.cpu().numpy() if hasattr(lig_attr_res.seq_attr, 'cpu') else lig_attr_res.seq_attr
-                    lig_trigger_idx = np.argmax(np.abs(lig_attr_scores))
-                    lig_trigger_token = inp.values[lig_trigger_idx].strip()
+                    
+                    # Filter out special tokens manually
+                    valid_indices = []
+                    valid_scores = []
+                    for i, token in enumerate(inp.values):
+                        token_id = tokenizer.convert_tokens_to_ids(token)
+                        if token_id not in skip_tokens and not token.startswith('<|') and not token.startswith('['):
+                            valid_indices.append(i)
+                            valid_scores.append(lig_attr_scores[i])
+                    
+                    if valid_scores:
+                        best_idx = valid_indices[np.argmax(np.abs(valid_scores))]
+                        lig_trigger_token = inp.values[best_idx].strip()
+                    else:
+                        lig_trigger_token = ""
+                    
                     gradient_guesses.append(lig_trigger_token)
                     gradient_correctness.append(bool(lig_trigger_token in focus))
+                    print(f"Gradient trigger: {lig_trigger_token}")
+                    
                 except Exception as e:
                     print(f"Error in Integrated Gradients for row {idx}: {e}")
                     gradient_guesses.append("")
