@@ -188,6 +188,10 @@ def main():
                 if valid_scores:
                     best_idx = valid_indices[np.argmax(np.abs(valid_scores))]
                     sv_trigger_token = inp.values[best_idx].strip()
+                    
+                    # Clean BPE artifacts
+                    sv_trigger_token = sv_trigger_token.replace('Ġ', ' ').strip()
+                    
                 else:
                     sv_trigger_token = ""
                 
@@ -217,6 +221,10 @@ def main():
                 if valid_scores:
                     best_idx = valid_indices[np.argmax(np.abs(valid_scores))]
                     fa_trigger_token = inp.values[best_idx].strip()
+                    
+                    # Clean BPE artifacts
+                    fa_trigger_token = fa_trigger_token.replace('Ġ', ' ').strip()
+                    
                 else:
                     fa_trigger_token = ""
                 
@@ -247,6 +255,10 @@ def main():
                     if valid_scores:
                         best_idx = valid_indices[np.argmax(np.abs(valid_scores))]
                         lig_trigger_token = inp.values[best_idx].strip()
+                        
+                        # Clean BPE artifacts
+                        lig_trigger_token = lig_trigger_token.replace('Ġ', ' ').strip()
+                        
                     else:
                         lig_trigger_token = ""
                     
