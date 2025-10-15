@@ -20,10 +20,6 @@ which python
 # Main Experiment Script
 echo "Starting Main Experiment Workflow!"
 
-if ! python -c "import captum" >/dev/null 2>&1; then
-  python -m pip install -U captum
-fi
-
 echo "False refusal SHAP testing"
 python3 full_correctness.py \
 > full_correctness.log 2>&1
