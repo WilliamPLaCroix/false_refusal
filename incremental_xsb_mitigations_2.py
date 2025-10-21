@@ -322,12 +322,12 @@ class LayerInputDownweight:
             if not self.focus_mask.any():
                 return
             hidden_states = args[0]
-            # We assume generation is called with the *same* prompt first; scale where input positions map
-            # Handle shape [B, T, C]
             if hidden_states.dim() == 3 and hidden_states.size(1) >= self.focus_mask.size(1):
                 fm = self.focus_mask[:, :hidden_states.size(1)].to(hidden_states.device)
-                hidden_states = hidden_states * torch.where(fm.unsqueeze(-1), torch.tensor(self.beta, device=hidden_states.device), torch.tensor(1.0, device=hidden_states.device))
-                # Replace the arg in-place
+                scale = torch.ones_like(hidden_states, dtype=hidden_states.dtype)
+                beta_val = torch.tensor(self.beta, dtype=hidden_states.dtype, device=hidden_states.device)
+                scale.masked_fill_(fm.unsqueeze(-1).expand_as(scale), beta_val)
+                hidden_states = hidden_states * scale
                 new_args = (hidden_states,) + tuple(args[1:])
                 return new_args
         return fn
