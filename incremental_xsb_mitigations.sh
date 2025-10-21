@@ -20,8 +20,8 @@ which python
 echo "Run Incremental XSB Mitigations"
 python incremental_xsb_mitigations_2.py \
   --data data/XSB.csv --out runs/incremental_xsb \
-  --base_model meta-llama/Llama-3.1-8B \
-  --big_model meta-llama/Llama-3.3-70B-Instruct \
+  --base_model /scratch/common_models/Llama-3.1-8B \
+  --big_model /scratch/common_models/Llama-3.3-70B-Instruct \
   --beta 0.6 --penalty 2.0 --auto_top_frac 0.25 \
 > incremental_xsb_mitigations.log 2>&1
 
