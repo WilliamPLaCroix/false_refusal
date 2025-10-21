@@ -1,28 +1,3 @@
-# preflight.py
-import sys, subprocess, importlib.util
-
-REQS = {
-    "torch": "torch",
-    "transformers": "transformers",
-    "captum": "captum",
-    "sklearn": "scikit-learn",
-    "numpy": "numpy",
-    "pandas": "pandas",
-    "fire": "fire",
-    "safetensors": "safetensors",
-    "sentencepiece": "sentencepiece",
-    "accelerate": "accelerate",
-    # "bitsandbytes": "bitsandbytes",  # optional
-}
-
-missing = [pkg for imp, pkg in REQS.items() if importlib.util.find_spec(imp) is None]
-if missing:
-    print(f"Installing: {missing}", flush=True)
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", "pip"])
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", *missing])
-else:
-    print("All dependencies satisfied.")
-
 
 import os
 import json
