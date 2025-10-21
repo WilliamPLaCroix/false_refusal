@@ -740,9 +740,9 @@ def main(
         base_load_kwargs=base_load,
         big_load_kwargs=big_load,
         calibrate=calibrate,
-        beta: float = 0.6,
-        penalty: float = 2.0,
-        auto_top_frac: float = 0.25,
+        beta=0.6,
+        penalty=2.0,
+        auto_top_frac=0.25,
     )
 
 
