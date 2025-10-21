@@ -18,11 +18,19 @@ echo "HOSTNAME: $HOSTNAME"
 which python
 
 echo "Run Incremental XSB Mitigations"
-python incremental_xsb_mitigations_2.py \
-  --data data/XSB.csv --out runs/incremental_xsb \
-  --base_model /scratch/common_models/Llama-3.1-8B \
-  --big_model /scratch/common_models/Llama-3.3-70B-Instruct \
-  --beta 0.6 --penalty 2.0 --auto_top_frac 0.25 \
+python incremental_xsb_mitigations.py \
+  --data data/XSB.csv \
+  --out runs/incremental_xsb \
+  --base_model meta-llama/Llama-3.1-8B \
+  --big_model meta-llama/Llama-3.1-8B \
+  --big_load '{
+    "load_in_4bit": true,
+    "bnb_4bit_compute_dtype": "float16",
+    "bnb_4bit_quant_type": "nf4",
+    "bnb_4bit_use_double_quant": true,
+    "device_map": "auto",
+    "attn_implementation": "sdpa"
+  }' \
 > incremental_xsb_mitigations.log 2>&1
 
 echo "Main Experiment Workflow Completed!"

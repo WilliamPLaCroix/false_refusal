@@ -50,8 +50,10 @@ def save_jsonl(records: List[Dict[str, Any]], path: str):
 # -----------------------------
 
 class HFModel:
-    """Simple HF wrapper that keeps model+tokenizer resident in memory."""
-    def __init__(self, model_name: str, device: Optional[str] = None, dtype: Optional[torch.dtype] = None):
+    def __init__(self, model_name: str,
+                 device: Optional[str] = None,
+                 dtype: Optional[torch.dtype] = None,
+                 **from_pretrained_kwargs):
         self.model_name = model_name
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.dtype = dtype or (torch.float16 if self.device == "cuda" else torch.float32)
@@ -61,11 +63,18 @@ class HFModel:
             self.tokenizer.pad_token = self.tokenizer.eos_token
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
 
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name,
+        default_kwargs = dict(
             torch_dtype=self.dtype,
             device_map="auto" if self.device == "cuda" else None,
+            low_cpu_mem_usage=True,
+            attn_implementation=from_pretrained_kwargs.pop("attn_implementation", None) or "sdpa",
+        )
+        default_kwargs.update(from_pretrained_kwargs)
+
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_name,
             pad_token_id=self.tokenizer.eos_token_id,
+            **{k: v for k, v in default_kwargs.items() if v is not None}
         )
         if self.device == "cpu":
             self.model = self.model.to(self.device)
@@ -496,6 +505,8 @@ def run_pipeline(
     temperature: float = 0.2,
     sample_start: int = 0,
     sample_limit: Optional[int] = None,
+    base_load_kwargs: dict | None = None,
+    big_load_kwargs: dict | None = None
 ):
     seed_everything(42)
     ensure_dir(out_dir)
@@ -516,10 +527,10 @@ def run_pipeline(
     print(f"Using device: {device}")
 
     print(f"Loading base model: {base_model_name}")
-    base = HFModel(base_model_name)
+    base = HFModel(base_model_name, **(base_load_kwargs or {}))
 
     print(f"Loading rephraser/evaluator model: {big_model_name}")
-    judge = HFModel(big_model_name)
+    judge = HFModel(big_model_name, **(big_load_kwargs or {}))
 
     # Init attribution methods once
     print("Initializing identification methods (Captum)...")
@@ -668,14 +679,12 @@ def main(
     beta: float = 0.6,
     penalty: float = 2.0,
     auto_top_frac: float = 0.25,
+    base_load: dict = None,
+    big_load: dict = None,
 ):
-    """Fire entrypoint for the incremental XSB pipeline.
-
-    Args map to run_pipeline plus steering params:
-      - beta: layer input downweight factor (0<beta<=1)
-      - penalty: soft logit penalty applied to focus token ids
-      - auto_top_frac: fraction of layers auto-selected for downweighting based on focus attention
-    """
+    base_load = base_load or {}
+    big_load  = big_load  or {}
+    
     return run_pipeline(
         data_path=data,
         out_dir=out,
@@ -685,6 +694,9 @@ def main(
         temperature=temperature,
         sample_start=start,
         sample_limit=limit,
+        # pass-through kwargs:
+        base_load_kwargs=base_load,
+        big_load_kwargs=big_load,
     )
 
 
