@@ -1,0 +1,28 @@
+#!/bin/bash
+
+source /nethome/wlacroix/LLaMA-Factory/experiments/scripts/rename_gpus.sh
+source /nethome/wlacroix/miniconda3/etc/profile.d/conda.sh
+echo "Current conda environment: $CONDA_DEFAULT_ENV"
+conda activate /nethome/wlacroix/miniconda3/envs/llama_factory_v2
+echo "Activated conda environment: $CONDA_DEFAULT_ENV"
+cd /nethome/wlacroix/false_refusal
+
+# Debugging: Check CUDA details
+echo "=== CUDA Debugging Information ==="
+nvcc --version
+nvidia-smi
+echo "CUDA_HOME: $CUDA_HOME"
+echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
+echo "==================================="
+echo "HOSTNAME: $HOSTNAME"
+which python
+
+echo "Run Incremental XSB Mitigations"
+python incremental_xsb_mitigations_2.py \
+  --data data/XSB.csv --out runs/incremental_xsb \
+  --base_model meta-llama/Llama-3.1-8B \
+  --big_model meta-llama/Llama-3.3-70B-Instruct \
+  --beta 0.6 --penalty 2.0 --auto_top_frac 0.25 \
+> incremental_xsb_mitigations.log 2>&1
+
+echo "Main Experiment Workflow Completed!"
