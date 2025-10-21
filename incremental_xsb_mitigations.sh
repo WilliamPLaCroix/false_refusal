@@ -23,14 +23,8 @@ python incremental_xsb_mitigations.py \
   --out runs/incremental_xsb \
   --base_model meta-llama/Llama-3.1-8B \
   --big_model meta-llama/Llama-3.1-8B \
-  --big_load '{
-    "load_in_4bit": true,
-    "bnb_4bit_compute_dtype": "float16",
-    "bnb_4bit_quant_type": "nf4",
-    "bnb_4bit_use_double_quant": true,
-    "device_map": "auto",
-    "attn_implementation": "sdpa"
-  }' \
+  --base_load '{"device_map": null}' \
+  --big_load  '{"device_map": null}' \
 > incremental_xsb_mitigations.log 2>&1
 
 echo "Main Experiment Workflow Completed!"

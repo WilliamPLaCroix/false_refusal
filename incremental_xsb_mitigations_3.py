@@ -11,6 +11,7 @@ from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     LogitsProcessorList,
+    GenerationConfig,
 )
 from captum.attr import (
     FeatureAblation,
@@ -51,8 +52,9 @@ def save_jsonl(records: List[Dict[str, Any]], path: str):
 
 class HFModel:
     def __init__(self, model_name: str,
-                 device: Optional[str] = None,
-                 dtype: Optional[torch.dtype] = None,
+                 device: Optional[str] = None, 
+                 dtype: Optional[torch.dtype] = None, 
+                 device_map: Optional[str|dict] = None, 
                  **from_pretrained_kwargs):
         self.model_name = model_name
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -64,11 +66,11 @@ class HFModel:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
 
         default_kwargs = dict(
-            torch_dtype=self.dtype,
-            device_map="auto" if self.device == "cuda" else None,
-            low_cpu_mem_usage=True,
-            attn_implementation=from_pretrained_kwargs.pop("attn_implementation", None) or "sdpa",
-        )
+                        torch_dtype=self.dtype,
+                        device_map=device_map if device_map is not None else ("auto" if self.device == "cuda" else None),
+                        low_cpu_mem_usage=True,
+                        attn_implementation=from_pretrained_kwargs.pop("attn_implementation", None) or "sdpa",
+                        )
         default_kwargs.update(from_pretrained_kwargs)
 
         self.model = AutoModelForCausalLM.from_pretrained(
@@ -76,6 +78,18 @@ class HFModel:
             pad_token_id=self.tokenizer.eos_token_id,
             **{k: v for k, v in default_kwargs.items() if v is not None}
         )
+        # Reset generation_config to deterministic defaults unless user opts in to sampling
+        gen_cfg = GenerationConfig.from_model_config(self.model.config)
+        # make greedy the default
+        gen_cfg.do_sample = False
+        # unset sampling-only knobs to avoid warnings
+        gen_cfg.temperature = None
+        gen_cfg.top_p = None
+        gen_cfg.top_k = None
+        # ensure eos/pad ids are correct
+        gen_cfg.eos_token_id = self.tokenizer.eos_token_id
+        gen_cfg.pad_token_id = self.tokenizer.eos_token_id
+        self.model.generation_config = gen_cfg
         if self.device == "cpu":
             self.model = self.model.to(self.device)
         self.model.eval()
@@ -294,6 +308,10 @@ def _select_layers_via_attention(model: AutoModelForCausalLM, tokenizer: AutoTok
     """
     try:
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+        # keep at most first 128 tokens for calibration
+        for k in ("input_ids", "attention_mask"):
+            if k in inputs:
+                inputs[k] = inputs[k][..., :128]
         prev_impl = getattr(model.config, "attn_implementation", None)
         model.config.attn_implementation = "eager"
         try:
@@ -396,6 +414,7 @@ def control_generation(model: HFModel, prompt: str, **gen_kwargs) -> str:
 def attention_steering_logit_suppression(model: HFModel, prompt: str, focus: str,
                                           beta: float = 0.6, penalty: float = 2.0,
                                           auto_top_frac: float = 0.25,
+                                          calibrate: bool = True,
                                           **gen_kwargs) -> str:
     """Dual adjustment: (1) *Layer input downweighting* on layers auto-selected via a
     calibration pass (attention to focus), and (2) *soft* logit suppression for focus ids.
@@ -404,9 +423,19 @@ def attention_steering_logit_suppression(model: HFModel, prompt: str, focus: str
     if not focus.strip():
         return model.generate(prompt, **gen_kwargs)
 
-    layers = _select_layers_via_attention(model.model, model.tokenizer, prompt, focus, top_frac=auto_top_frac)
-    processors = LogitsProcessorList([SoftPenaltyLogitsProcessor(model.tokenizer, focus, penalty=penalty)])
+    if calibrate:
+        layers = _select_layers_via_attention(model.model, model.tokenizer, prompt, focus,
+                                              top_frac=auto_top_frac)
+    else:
+        # fast heuristic: last third of layers
+        try:
+            L = len(model.model.model.layers)
+            start = max(0, int(2*L/3))
+            layers = list(range(start, L))
+        except Exception:
+            layers = []
 
+    processors = LogitsProcessorList([SoftPenaltyLogitsProcessor(model.tokenizer, focus, penalty=penalty)])
     with LayerInputDownweight(model.model, model.tokenizer, prompt, focus, layers=layers, beta=beta):
         return model.generate(prompt, logits_processors=processors, **gen_kwargs)
 
@@ -455,7 +484,7 @@ def judge_outputs(evaluator: HFModel, original_prompt: str, outputs: Dict[str, s
         "\nReturn only JSON, no prose.",
     ]
     prompt = JUDGE_INSTRUCTION + "\n\n" + "\n\n".join(blocks)
-    raw = evaluator.generate(prompt, max_new_tokens=256, temperature=0.0, do_sample=False)
+    raw = evaluator.generate(prompt, max_new_tokens=256, do_sample=False)
     # Robust JSON parse
     try:
         start = raw.find('{')
@@ -506,7 +535,11 @@ def run_pipeline(
     sample_start: int = 0,
     sample_limit: Optional[int] = None,
     base_load_kwargs: dict | None = None,
-    big_load_kwargs: dict | None = None
+    big_load_kwargs: dict | None = None,
+    calibrate: bool = True,
+    beta: float = 0.6,
+    penalty: float = 2.0,
+    auto_top_frac: float = 0.25,
 ):
     seed_everything(42)
     ensure_dir(out_dir)
@@ -527,10 +560,10 @@ def run_pipeline(
     print(f"Using device: {device}")
 
     print(f"Loading base model: {base_model_name}")
-    base = HFModel(base_model_name, **(base_load_kwargs or {}))
+    base = HFModel(base_model_name, device="cuda:0", device_map=None)
 
     print(f"Loading rephraser/evaluator model: {big_model_name}")
-    judge = HFModel(big_model_name, **(big_load_kwargs or {}))
+    judge = HFModel(big_model_name, device="cuda:1", device_map=None)
 
     # Init attribution methods once
     print("Initializing identification methods (Captum)...")
@@ -568,19 +601,27 @@ def run_pipeline(
 
         # MITIGATION PROMPTS/GENERATIONS
         # 1) Control
-        control_out = control_generation(base, prompt, max_new_tokens=max_new_tokens, temperature=temperature)
+        control_out = control_generation(base, prompt, max_new_tokens=max_new_tokens, do_sample=False)
 
         # 2) Attention steering with logit suppression (implemented via bad-words processor)
-        ls_out = attention_steering_logit_suppression(base, prompt, focus=gold_focus or id_res.shap_focus,
-                                                      max_new_tokens=max_new_tokens, temperature=temperature)
+        ls_out = attention_steering_logit_suppression(
+                    base, prompt,
+                    focus=gold_focus or id_res.shap_focus,
+                    beta=beta, penalty=penalty,
+                    auto_top_frac=auto_top_frac,
+                    calibrate=calibrate,                    # NEW
+                    max_new_tokens=max_new_tokens,
+                    # make deterministic unless you explicitly want sampling
+                    do_sample=False
+                    )
 
         # 3) Ignore-word prompt
         ig_prompt = ignore_word_prompt(prompt, focus=gold_focus or id_res.shap_focus)
-        ig_out = control_generation(base, ig_prompt, max_new_tokens=max_new_tokens, temperature=temperature)
+        ig_out = control_generation(base, ig_prompt, max_new_tokens=max_new_tokens, do_sample=False)
 
         # 4) Prompt reshaping via larger model
         rephrased_prompt = rephrase_prompt_avoid_focus(judge, prompt, focus=gold_focus or id_res.shap_focus)
-        rephrased_out = control_generation(base, rephrased_prompt, max_new_tokens=max_new_tokens, temperature=temperature)
+        rephrased_out = control_generation(base, rephrased_prompt, max_new_tokens=max_new_tokens, do_sample=False)
 
         # JUDGE
         outputs = {
@@ -679,6 +720,7 @@ def main(
     beta: float = 0.6,
     penalty: float = 2.0,
     auto_top_frac: float = 0.25,
+    calibrate: bool = True,   # NEW
     base_load: dict = None,
     big_load: dict = None,
 ):
@@ -697,6 +739,10 @@ def main(
         # pass-through kwargs:
         base_load_kwargs=base_load,
         big_load_kwargs=big_load,
+        calibrate=calibrate,
+        beta: float = 0.6,
+        penalty: float = 2.0,
+        auto_top_frac: float = 0.25,
     )
 
 
