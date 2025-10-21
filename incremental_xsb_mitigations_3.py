@@ -72,18 +72,27 @@ class HFModel:
         self.model.eval()
 
     @torch.inference_mode()
-    def generate(self, prompt: str, max_new_tokens: int = 256, temperature: float = 0.2,
-                 do_sample: bool = False, logits_processors: Optional[LogitsProcessorList] = None) -> str:
+    def generate(self, prompt: str, max_new_tokens: int = 256,
+                 temperature: Optional[float] = None,
+                 top_p: Optional[float] = None,
+                 do_sample: Optional[bool] = None,
+                 logits_processors: Optional[LogitsProcessorList] = None) -> str:
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-        outputs = self.model.generate(
-            **inputs,
+        gen_kwargs = dict(
             max_new_tokens=max_new_tokens,
-            do_sample=do_sample,
-            temperature=temperature,
             pad_token_id=self.tokenizer.eos_token_id,
             eos_token_id=self.tokenizer.eos_token_id,
             logits_processor=logits_processors,
         )
+        if do_sample:
+            gen_kwargs.update(dict(do_sample=True))
+            if temperature is not None:
+                gen_kwargs["temperature"] = float(temperature)
+            if top_p is not None:
+                gen_kwargs["top_p"] = float(top_p)
+        else:
+            gen_kwargs.update(dict(do_sample=False))
+        outputs = self.model.generate(**inputs, **gen_kwargs)
         gen = outputs[0][inputs["input_ids"].shape[1]:]
         return self.tokenizer.decode(gen, skip_special_tokens=True).strip()
 
@@ -114,17 +123,16 @@ def init_attribution_objects(model: HFModel):
     fa_llm_attr = LLMAttribution(fa, model.tokenizer)
 
     # Layer Integrated Gradients (may fail if arch mismatch)
-    print("  - Initializing Layer Integrated Gradients...")
     lig_llm_attr = None
+    print("  - Initializing Layer Integrated Gradients...")
     try:
         lig = LayerIntegratedGradients(model.model, model.model.model.embed_tokens)
         lig_llm_attr = LLMGradientAttribution(lig, model.tokenizer)
     except Exception:
         pass
 
-    # Tokens to skip
-    print("  - Preparing skip tokens...")
     skip_tokens = []
+    print("  - Preparing skip tokens...")
     for tid in [model.tokenizer.bos_token_id, model.tokenizer.eos_token_id,
                 model.tokenizer.pad_token_id, model.tokenizer.unk_token_id]:
         if tid is not None:
@@ -167,6 +175,7 @@ def identify_focus_words(base: HFModel, sv_llm_attr, fa_llm_attr, lig_llm_attr, 
     target = target if target.strip() else "."
 
     # 1) SHAP
+    print("    - Identifying focus via SHAP...")
     try:
         sv_res = sv_llm_attr.attribute(inp, target=target, skip_tokens=skip_tokens, n_samples=20)
         sv_scores = sv_res.seq_attr.detach().cpu().numpy() if hasattr(sv_res.seq_attr, 'detach') else sv_res.seq_attr
@@ -175,6 +184,7 @@ def identify_focus_words(base: HFModel, sv_llm_attr, fa_llm_attr, lig_llm_attr, 
         shap_focus = ""
 
     # 2) Feature Ablation
+    print("    - Identifying focus via Feature Ablation...")
     try:
         fa_res = fa_llm_attr.attribute(inp, target=target, skip_tokens=skip_tokens)
         fa_scores = fa_res.seq_attr.detach().cpu().numpy() if hasattr(fa_res.seq_attr, 'detach') else fa_res.seq_attr
@@ -183,6 +193,7 @@ def identify_focus_words(base: HFModel, sv_llm_attr, fa_llm_attr, lig_llm_attr, 
         ablation_focus = ""
 
     # 3) Integrated Gradients (if available)
+    print("    - Identifying focus via Integrated Gradients...")
     try:
         if lig_llm_attr is not None:
             lig_res = lig_llm_attr.attribute(inp, target=target, skip_tokens=skip_tokens)
@@ -269,25 +280,35 @@ def _select_layers_via_attention(model: AutoModelForCausalLM, tokenizer: AutoTok
                                  top_frac: float = 0.25) -> List[int]:
     """Calibrate once: run a forward pass with output_attentions=True and score layers by
     their average attention paid to focus positions. Return indices of top layers.
-    If attentions are unavailable, fall back to mid-to-late layers.
+    If attentions are unavailable, fall back to mid-to-late layers. Forces 'eager' attention
+    implementation during calibration to avoid SDPA warnings, then restores prior setting.
     """
     try:
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-        with torch.no_grad():
-            out = model(**inputs, output_attentions=True)
+        prev_impl = getattr(model.config, "attn_implementation", None)
+        model.config.attn_implementation = "eager"
+        try:
+            import contextlib
+            ctx = contextlib.nullcontext()
+            try:
+                ctx = torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True)
+            except Exception:
+                pass
+            with ctx, torch.no_grad():
+                out = model(**inputs, output_attentions=True)
+        finally:
+            if prev_impl is not None:
+                model.config.attn_implementation = prev_impl
         attns = out.attentions  # list[L] of [B, H, T, S]
         if not attns:
             raise RuntimeError("no attentions")
-        focus_mask = _find_focus_token_mask(tokenizer, inputs["input_ids"], focus)  # [B, S]
+        focus_mask = _find_focus_token_mask(tokenizer, inputs["input_ids"], focus)
         if not focus_mask.any():
-            # no explicit match; default to later layers
             L = len(attns)
-            return list(range(int(0.5*L), L))  # latter half
+            return list(range(int(0.5*L), L))
         scores = []
         for li, A in enumerate(attns):
-            # mean over batch, heads, query positions, restricted to focus columns
-            # A: [B,H,T,S]; focus over last dim S
-            fm = focus_mask[None, None, None, :].to(A.device)  # [1,1,1,S]
+            fm = focus_mask[None, None, None, :].to(A.device)
             num = (A * fm).sum().item()
             den = fm.sum().item() + 1e-8
             layer_score = num / den
@@ -327,12 +348,16 @@ class LayerInputDownweight:
             if not self.focus_mask.any():
                 return
             hidden_states = args[0]
+            # We assume generation is called with the *same* prompt first; scale where input positions map
+            # Handle shape [B, T, C]
             if hidden_states.dim() == 3 and hidden_states.size(1) >= self.focus_mask.size(1):
                 fm = self.focus_mask[:, :hidden_states.size(1)].to(hidden_states.device)
+                # Build a per-token scale tensor in the SAME dtype to avoid dtype promotion (fp16 vs fp32)
                 scale = torch.ones_like(hidden_states, dtype=hidden_states.dtype)
                 beta_val = torch.tensor(self.beta, dtype=hidden_states.dtype, device=hidden_states.device)
                 scale.masked_fill_(fm.unsqueeze(-1).expand_as(scale), beta_val)
                 hidden_states = hidden_states * scale
+                # Replace the arg in-place
                 new_args = (hidden_states,) + tuple(args[1:])
                 return new_args
         return fn
