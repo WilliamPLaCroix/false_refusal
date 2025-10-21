@@ -25,6 +25,6 @@ python incremental_xsb_mitigations_3.py \
   --big_model meta-llama/Llama-3.1-8B \
   --base_load '{"device_map": null}' \
   --big_load  '{"device_map": null}' \
-> incremental_xsb_mitigations.log 2>&1
+> incremental_xsb_mitigations_3.log 2>&1
 
 echo "Main Experiment Workflow Completed!"
