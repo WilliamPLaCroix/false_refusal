@@ -11,9 +11,7 @@ import torch
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
-    TextStreamer,
     LogitsProcessorList,
-    BadWordsLogitsProcessor,
 )
 from captum.attr import (
     FeatureAblation,
@@ -376,31 +374,6 @@ def attention_steering_logit_suppression(model: HFModel, prompt: str, focus: str
 
 def control_generation(model: HFModel, prompt: str, **gen_kwargs) -> str:
     return model.generate(prompt, **gen_kwargs)
-
-
-def attention_steering_logit_suppression(model: HFModel, prompt: str, focus: str,
-                                          **gen_kwargs) -> str:
-    """Implements simple logit suppression using BadWordsLogitsProcessor on the focus string.
-    This is a practical stand-in for attention steering + logit suppression and is a drop-in generator.
-    It prevents the model from emitting the focus token sequence.
-    """
-    if not focus.strip():
-        return model.generate(prompt, **gen_kwargs)
-
-    # Build bad word id sequences for the exact focus tokenization and a leading-space variant
-    bad_words_ids = []
-    seq = model.tokenizer.encode(focus, add_special_tokens=False)
-    if seq:
-        bad_words_ids.append(seq)
-    spaced = model.tokenizer.encode(" " + focus, add_special_tokens=False)
-    if spaced and spaced != seq:
-        bad_words_ids.append(spaced)
-
-    processors = LogitsProcessorList()
-    if bad_words_ids:
-        processors.append(BadWordsLogitsProcessor(bad_words_ids=bad_words_ids, eos_token_id=model.tokenizer.eos_token_id))
-
-    return model.generate(prompt, logits_processors=processors, **gen_kwargs)
 
 
 def ignore_word_prompt(prompt: str, focus: str) -> str:
