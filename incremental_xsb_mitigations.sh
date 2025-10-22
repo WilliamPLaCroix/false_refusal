@@ -21,6 +21,7 @@ echo "Run Incremental XSB Mitigations"
 python incremental_xsb_mitigations_3.py \
   --data data/XSB.csv \
   --out runs/incremental_xsb \
+  --calibrate False \
   --base_model meta-llama/Llama-3.1-8B \
   --big_model meta-llama/Llama-3.1-8B \
   --base_load '{"device_map": null}' \
