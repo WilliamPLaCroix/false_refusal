@@ -20,13 +20,12 @@ which python
 # Main Experiment Script
 echo "Starting Main Experiment Workflow!"
 
-if ! python -c "import captum" >/dev/null 2>&1; then
-  python -m pip install -U captum
-fi
-
-echo "False refusal SHAP testing"
-python3 full_correctness.py \
-> full_correctness.log 2>&1
+echo "debuggggg"
+python debug.py \
+  --model /scratch/common_models/Llama-3.1-8B \
+  --input_csv ./data/XSB.csv \
+  --output_csv ./data/debug.csv \
+> debug.log 2>&1
 
 #echo "Begin Inference"
 # python3 scripts/vllm_infer_metrics.py --model_name_or_path "/scratch/common_models/Llama-3.2-3B-Instruct" --adapter_name_or_path "/scratch/wlacroix/.cache/llama_factory/debug_adapter" --save_path "/scratch/wlacroix/.cache/llama_factory/debug" --template llama3 --dataset debug --temperature 0 --grade 7 \
