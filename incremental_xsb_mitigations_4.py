@@ -60,6 +60,7 @@ def save_jsonl(records: List[Dict[str, Any]], path: str):
 
 def load_model(model_name: str, device: Optional[str] = None, dtype: Optional[str] = None):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Loading model {model_name} on device {device} ...")
     if dtype is None:
         torch_dtype = torch.float16 if device.startswith("cuda") else torch.float32
     else:
@@ -68,6 +69,7 @@ def load_model(model_name: str, device: Optional[str] = None, dtype: Optional[st
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
         tok.pad_token_id = tok.eos_token_id
+    print("loading model...")
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype=torch_dtype,
@@ -75,8 +77,11 @@ def load_model(model_name: str, device: Optional[str] = None, dtype: Optional[st
         pad_token_id=tok.eos_token_id,
         low_cpu_mem_usage=True,
     )
+    print("model loaded.")
     if device == "cpu":
+        print("moving model to CPU...")
         model = model.to(device)
+    print("set model to eval mode.")
     model.eval()
     return tok, model
 
