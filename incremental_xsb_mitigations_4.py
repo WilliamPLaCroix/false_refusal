@@ -216,7 +216,7 @@ def main():
     p.add_argument("--data", type=str, default="data/XSB.csv")
     p.add_argument("--out", type=str, default="runs/xsb_minimal")
     p.add_argument("--base_model", type=str, default="meta-llama/Llama-3.1-8B")
-    #p.add_argument("--big_model", type=str, default="meta-llama/Llama-3.1-8B-Instruct")
+    p.add_argument("--big_model", type=str, default="meta-llama/Llama-3.1-8B-Instruct")
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--max_new_tokens", type=int, default=256)
     p.add_argument("--start", type=int, default=0)
