@@ -75,7 +75,7 @@ def load_model(model_name: str, device: Optional[str] = None, dtype: Optional[st
         torch_dtype=torch_dtype,
         device_map={"": 0},# if device.startswith("cuda:") else ("auto" if device == "cuda" else None),
         pad_token_id=tok.eos_token_id,
-        low_cpu_mem_usage=True,
+        #low_cpu_mem_usage=True,
     )
     print("model loaded.")
     if device == "cpu":
