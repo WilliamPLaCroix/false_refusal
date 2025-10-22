@@ -2,6 +2,7 @@
 import csv, json
 from pathlib import Path
 from typing import List, Union, Optional, Tuple
+import re
 
 import fire
 import torch
@@ -23,6 +24,28 @@ DEFAULT_CHAT_TEMPLATE = (
     "{% for m in messages %}<|start_header_id|>{{ m['role'] }}<|end_header_id|>\n{{ m['content'] }}<|eot_id|>{% endfor %}"
     "<|start_header_id|>assistant<|end_header_id|>\n"
 )
+
+def _valid_prompt_mask(prompt_ids: torch.Tensor, tokenizer) -> torch.Tensor:
+    """
+    Returns a boolean mask (T_prompt,) selecting ONLY non-special tokens.
+    Excludes BOS/EOS/PAD and any token id in tokenizer.all_special_ids.
+    """
+    special_ids = set(tokenizer.all_special_ids or [])
+    ids = prompt_ids[0].tolist()  # (T_prompt,)
+    mask_list = [(tid not in special_ids) for tid in ids]
+    return torch.tensor(mask_list, dtype=torch.bool, device=prompt_ids.device)
+
+_MARKERS = ("Ġ", "▁",)  # space markers (GPT-NeoX/RoBERTa, SentencePiece)
+def _clean_token(tok: str) -> str:
+    # strip leading/common markers
+    for m in _MARKERS:
+        tok = tok.replace(m, "")
+    # strip WordPiece continuation '##'
+    tok = re.sub(r"^##", "", tok)
+    # optional: trim angle-bracketed specials if any slipped through
+    if tok.startswith("<|") and tok.endswith("|>"):
+        tok = ""
+    return tok
 
 def _select_dtype() -> torch.dtype:
     if torch.cuda.is_available():
@@ -176,7 +199,7 @@ def run(
     model: str,
     input_csv: str,
     output_csv: str,
-    limit: int = 1,
+    limit: int = 2,
     # CSV columns: {id,prompt,type,type_id,label,class,focus,note}
     prompt_col: str = "prompt",
     system: Optional[str] = None,
@@ -284,13 +307,18 @@ def run(
             # === 1) LayerIntegratedGradients
             try:
                 scores_lig = _captum_layer_integrated_gradients(
-                    model_obj, tokenizer, prompt_ids, gen_ids, pad_id, n_steps=lig_steps
-                )
-                idx_lig = int(torch.argmax(scores_lig).item())
+                            model_obj, tokenizer, prompt_ids, gen_ids, pad_id, n_steps=lig_steps
+                            )
+                mask = _valid_prompt_mask(prompt_ids, tokenizer)         # (T_prompt,)
+                scores_masked = scores_lig.masked_fill(~mask, float("-inf"))
+                idx_lig = int(torch.argmax(scores_masked).item())
+
                 tok_lig = tokenizer.convert_ids_to_tokens([int(prompt_ids[0, idx_lig].item())])[0]
-                row["attr_token_lig"] = tok_lig
-                row["attr_idx_lig"] = idx_lig
-                row["attr_score_lig"] = float(scores_lig[idx_lig].item())
+                tok_lig = _clean_token(tok_lig)
+
+                row["attr_token_lig"]  = tok_lig
+                row["attr_idx_lig"]    = idx_lig
+                row["attr_score_lig"]  = float(scores_lig[idx_lig].item())
             except Exception as e:
                 row["attr_token_lig"] = f"ERROR:{e}"
                 row["attr_idx_lig"] = ""
@@ -298,13 +326,14 @@ def run(
 
             # === 2) FeatureAblation
             try:
-                scores_ab = _captum_feature_ablation(
-                    model_obj, tokenizer, prompt_ids, gen_ids, device=device
-                )
-                idx_ab = int(torch.argmax(scores_ab).item())
+                scores_ab = _captum_feature_ablation(model_obj, tokenizer, prompt_ids, gen_ids, device=device)
+                mask = _valid_prompt_mask(prompt_ids, tokenizer)
+                scores_masked = scores_ab.masked_fill(~mask, float("-inf"))
+                idx_ab = int(torch.argmax(scores_masked).item())
                 tok_ab = tokenizer.convert_ids_to_tokens([int(prompt_ids[0, idx_ab].item())])[0]
+                tok_ab = _clean_token(tok_ab)
                 row["attr_token_ablate"] = tok_ab
-                row["attr_idx_ablate"] = idx_ab
+                row["attr_idx_ablate"]   = idx_ab
                 row["attr_score_ablate"] = float(scores_ab[idx_ab].item())
             except Exception as e:
                 row["attr_token_ablate"] = f"ERROR:{e}"
@@ -313,13 +342,14 @@ def run(
 
             # === 3) ShapleyValueSampling
             try:
-                scores_sh = _captum_shapley(
-                    model_obj, tokenizer, prompt_ids, gen_ids, device=device, nsamples=shap_samples
-                )
-                idx_sh = int(torch.argmax(scores_sh).item())
+                scores_sh = _captum_shapley(model_obj, tokenizer, prompt_ids, gen_ids, device=device, nsamples=shap_samples)
+                mask = _valid_prompt_mask(prompt_ids, tokenizer)
+                scores_masked = scores_sh.masked_fill(~mask, float("-inf"))
+                idx_sh = int(torch.argmax(scores_masked).item())
                 tok_sh = tokenizer.convert_ids_to_tokens([int(prompt_ids[0, idx_sh].item())])[0]
+                tok_sh = _clean_token(tok_sh)
                 row["attr_token_shap"] = tok_sh
-                row["attr_idx_shap"] = idx_sh
+                row["attr_idx_shap"]   = idx_sh
                 row["attr_score_shap"] = float(scores_sh[idx_sh].item())
             except Exception as e:
                 row["attr_token_shap"] = f"ERROR:{e}"
