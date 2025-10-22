@@ -563,7 +563,8 @@ def run_pipeline(
     base = HFModel(base_model_name, device="cuda:0", device_map=None)
 
     print(f"Loading rephraser/evaluator model: {big_model_name}")
-    judge = HFModel(big_model_name, device="cuda:1", device_map=None)
+    judge = base
+    #judge = HFModel(big_model_name, device="cuda:1", device_map=None)
 
     # Init attribution methods once
     print("Initializing identification methods (Captum)...")
