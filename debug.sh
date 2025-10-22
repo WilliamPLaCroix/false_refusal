@@ -22,9 +22,12 @@ echo "Starting Main Experiment Workflow!"
 
 echo "debuggggg"
 python debug.py \
-  --model /scratch/common_models/Llama-3.1-8B-Instruct \
+  --model /scratch/common_models/Llama-3.1-8B \
   --input_csv ./data/XSB.csv \
   --output_csv ./data/debug.csv \
+  --limit 5 \
+  --lig_steps 24 \
+  --shap_samples 128 \
 > debug.log 2>&1
 
 #echo "Begin Inference"
