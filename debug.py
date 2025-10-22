@@ -105,27 +105,33 @@ def _scores_from_attr(attr: Tensor) -> Tensor:
     return attr.abs().mean(dim=-1)
 
 def _captum_layer_integrated_gradients(
-    model, tokenizer, prompt_ids: Tensor, gen_ids: Tensor, pad_id: int, n_steps: int = 16
-) -> Tensor:
+    model, tokenizer, prompt_ids: torch.Tensor, gen_ids: torch.Tensor, pad_id: int, n_steps: int = 16
+) -> torch.Tensor:
     emb_layer = model.get_input_embeddings()
 
-    def forward_for_lig(input_ids: Tensor, gen_ids: Tensor) -> Tensor:
-        full_ids = torch.cat([input_ids, gen_ids], dim=1)
-        attn = torch.ones_like(full_ids).to(full_ids.device)
+    def forward_for_lig(input_ids: torch.Tensor, gen_ids_: torch.Tensor) -> torch.Tensor:
+        # input_ids: (B, T_prompt)
+        B = input_ids.size(0)
+        # View the same gen sequence for each batch item (no copy):
+        gen_ids_rep = gen_ids_.expand(B, -1)   # (B, L_gen)
+
+        full_ids = torch.cat([input_ids, gen_ids_rep], dim=1)  # (B, T_prompt + L_gen)
+        attn = torch.ones_like(full_ids, dtype=torch.long, device=full_ids.device)
         out = model(input_ids=full_ids, attention_mask=attn)
-        logits = out.logits  # (1, T, V)
+        logits = out.logits  # (B, T, V)
+
         T_prompt = input_ids.shape[1]
-        gen_logits = logits[:, T_prompt-1:-1, :]
+        gen_logits = logits[:, T_prompt-1:-1, :]            # align next-token predictions for gen part
         logps = torch.log_softmax(gen_logits, dim=-1)
-        gathered = logps.gather(2, gen_ids.unsqueeze(-1)).squeeze(-1)  # (1, L_gen)
-        return gathered.sum(dim=1)
+        gathered = logps.gather(2, gen_ids_rep.unsqueeze(-1)).squeeze(-1)  # (B, L_gen)
+        return gathered.sum(dim=1)  # (B,)
 
     lig = LayerIntegratedGradients(forward_for_lig, emb_layer)
     baseline_ids = torch.full_like(prompt_ids, fill_value=pad_id)
     attributions, _ = lig.attribute(
         inputs=prompt_ids,
         baselines=baseline_ids,
-        additional_forward_args=(gen_ids,),
+        additional_forward_args=(gen_ids,),   # (1, L_gen) —> expanded inside forward
         n_steps=n_steps,
         return_convergence_delta=True,
     )
@@ -140,16 +146,22 @@ def _captum_feature_ablation(
         gen_embeds = emb_layer(gen_ids)        # (1, L, D)
     prompt_embeds = prompt_embeds.clone().detach().requires_grad_(True)
 
-    def forward_on_prompt_embeds(p_embeds: Tensor) -> Tensor:
-        T_prompt = p_embeds.shape[1]
-        full_embeds = torch.cat([p_embeds, gen_embeds.detach()], dim=1)
+    def forward_on_prompt_embeds(p_embeds: torch.Tensor) -> torch.Tensor:
+        # p_embeds: (B, T_prompt, D)
+        B, T_prompt, _ = p_embeds.shape
+        gen_embeds_rep = gen_embeds.detach().expand(B, -1, -1)  # (B, L_gen, D)
+
+        full_embeds = torch.cat([p_embeds, gen_embeds_rep], dim=1)  # (B, T_prompt + L_gen, D)
         attn = torch.ones(full_embeds.shape[:2], dtype=torch.long, device=full_embeds.device)
         out = model(inputs_embeds=full_embeds, attention_mask=attn)
         logits = out.logits
         gen_logits = logits[:, T_prompt-1:-1, :]
         logps = torch.log_softmax(gen_logits, dim=-1)
-        gathered = logps.gather(2, gen_ids.to(device).unsqueeze(-1)).squeeze(-1)
-        return gathered.sum(dim=1)
+
+        # labels view for gather must match batch
+        gen_ids_rep = gen_ids.to(p_embeds.device).expand(B, -1)     # (B, L_gen)
+        gathered = logps.gather(2, gen_ids_rep.unsqueeze(-1)).squeeze(-1)  # (B, L_gen)
+        return gathered.sum(dim=1)  # (B,)
 
     ablator = FeatureAblation(forward_on_prompt_embeds)
     T_prompt = prompt_embeds.shape[1]
