@@ -237,7 +237,7 @@ def main():
 
     print(f"Dataset size: {len(df)} rows")
 
-    print(f"Loading base model: {args.base_model}")
+    print(f"Loading base model:) {args.base_model}")
     base_tok, base_model = load_model(args.base_model, device=args.device)
 
     #print(f"Loading big model (for rephrasing): {args.big_model}")
