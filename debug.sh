@@ -22,7 +22,7 @@ echo "Starting Main Experiment Workflow!"
 
 echo "debuggggg"
 python debug.py \
-  --model /scratch/common_models/Llama-3.1-8B \
+  --model /scratch/common_models/Llama-3.1-8B-Instruct \
   --input_csv ./data/XSB.csv \
   --output_csv ./data/debug.csv \
 > debug.log 2>&1
