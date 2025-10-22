@@ -216,7 +216,7 @@ def main():
     p.add_argument("--data", type=str, default="data/XSB.csv")
     p.add_argument("--out", type=str, default="runs/xsb_minimal")
     p.add_argument("--base_model", type=str, default="meta-llama/Llama-3.1-8B")
-    p.add_argument("--big_model", type=str, default="meta-llama/Llama-3.1-8B-Instruct")
+    #p.add_argument("--big_model", type=str, default="meta-llama/Llama-3.1-8B-Instruct")
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--max_new_tokens", type=int, default=256)
     p.add_argument("--start", type=int, default=0)
@@ -240,8 +240,8 @@ def main():
     print(f"Loading base model: {args.base_model}")
     base_tok, base_model = load_model(args.base_model, device=args.device)
 
-    print(f"Loading big model (for rephrasing): {args.big_model}")
-    big_tok, big_model = load_model(args.big_model, device=args.device)
+    #print(f"Loading big model (for rephrasing): {args.big_model}")
+    #big_tok, big_model = load_model(args.big_model, device=args.device)
 
     print("Initializing identifiers (Captum)...")
     sv_llm, fa_llm, lig_llm, skip_ids = init_identifiers(base_model, base_tok)
@@ -268,8 +268,8 @@ def main():
         control_out = greedy_generate(base_tok, base_model, prompt, max_new_tokens=args.max_new_tokens)
         ig_prompt = ignore_word_prompt(prompt, gold_focus or preds.get("shap", ""))
         ignore_out = greedy_generate(base_tok, base_model, ig_prompt, max_new_tokens=args.max_new_tokens)
-        re_prompt = rephrase_prompt(big_tok, big_model, prompt, gold_focus or preds.get("shap", ""))
-        re_out = greedy_generate(base_tok, base_model, re_prompt, max_new_tokens=args.max_new_tokens)
+        #re_prompt = rephrase_prompt(big_tok, big_model, prompt, gold_focus or preds.get("shap", ""))
+        #re_out = greedy_generate(base_tok, base_model, re_prompt, max_new_tokens=args.max_new_tokens)
 
         per_sample.append({
             "prompt": prompt,
@@ -279,10 +279,10 @@ def main():
             "ablation_focus": preds.get("ablation", ""),
             "ig_focus": preds.get("ig", ""),
             "ignore_word_prompt": ig_prompt,
-            "rephrased_prompt": re_prompt,
+            #"rephrased_prompt": re_prompt,
             "control_output": control_out,
             "ignore_word_output": ignore_out,
-            "rephrased_output": re_out,
+            #"rephrased_output": re_out,
         })
 
     # Save outputs
