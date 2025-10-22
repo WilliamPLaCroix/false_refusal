@@ -563,8 +563,7 @@ def run_pipeline(
     base = HFModel(base_model_name, device="cuda:0", device_map=None)
 
     print(f"Loading rephraser/evaluator model: {big_model_name}")
-    judge = base
-    #judge = HFModel(big_model_name, device="cuda:1", device_map=None)
+    ### judge = HFModel(big_model_name, device="cuda:1", device_map=None)
 
     # Init attribution methods once
     print("Initializing identification methods (Captum)...")
@@ -621,7 +620,8 @@ def run_pipeline(
         ig_out = control_generation(base, ig_prompt, max_new_tokens=max_new_tokens, do_sample=False)
 
         # 4) Prompt reshaping via larger model
-        rephrased_prompt = rephrase_prompt_avoid_focus(judge, prompt, focus=gold_focus or id_res.shap_focus)
+        ### rephrased_prompt = rephrase_prompt_avoid_focus(judge, prompt, focus=gold_focus or id_res.shap_focus)
+        rephrased_prompt = rephrase_prompt_avoid_focus(base, prompt, focus=gold_focus or id_res.shap_focus)
         rephrased_out = control_generation(base, rephrased_prompt, max_new_tokens=max_new_tokens, do_sample=False)
 
         # JUDGE
@@ -631,7 +631,8 @@ def run_pipeline(
             "ignore_word": ig_out,
             "rephrased": rephrased_out,
         }
-        verdict = judge_outputs(judge, prompt, outputs)
+        ### verdict = judge_outputs(judge, prompt, outputs)
+        verdict = judge_outputs(base, prompt, outputs)
         for k, v in verdict.items():
             judge_counts[k]["total"] += 1
             judge_counts[k]["complies"] += int(bool(v.get("complies", False)))
