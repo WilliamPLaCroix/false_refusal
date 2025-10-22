@@ -18,7 +18,7 @@ echo "HOSTNAME: $HOSTNAME"
 which python
 
 echo "Run Incremental XSB Mitigations"
-python xsb_minimal_pipeline.py \
+python incremental_xsb_mitigations_4.py \
   --data data/XSB.csv \
   --out runs/xsb_minimal \
   --base_model /scratch/common_models/Llama-3.1-8B \
