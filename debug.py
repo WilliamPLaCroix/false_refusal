@@ -262,7 +262,7 @@ def run(
     model: str,
     input_csv: str,
     output_csv: str,
-    limit: int = 1,
+    limit: int = None,
     # CSV columns include: id,prompt,type,type_id,label,class,focus,note
     prompt_col: str = "prompt",
     system: Optional[str] = None,
